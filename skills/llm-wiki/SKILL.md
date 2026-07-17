@@ -10,7 +10,8 @@ description: >
 
 # LLM Wiki 원스톱
 
-당신(에이전트)이 **컴파일러**다. 외부 LLM API를 부르지 말고 직접 정리한다.
+당신(코딩 에이전트)이 **컴파일러**다. 인제스트·컴파일은 현재 하네스에서 직접
+수행한다. 브라우저 질의용 AI는 별도 localhost 브릿지이며 명시적으로 설정한 경우만 쓴다.
 
 ## 0. 설치 보장 (첨부만 받은 경우 필수)
 
@@ -60,12 +61,18 @@ pip install -r "<이-스킬>/assets/requirements.txt"
 python $SCRIPTS/bootstrap_wiki.py "<wiki-root>" --preset <preset> --title "<제목>"
 ```
 
-이미 purpose.md/schema.md 가 있으면 bootstrap 생략, 기존 규칙을 따른다.
+bootstrap은 workspace용 `tools/`, `start-llm-wiki.bat`/`.ps1`,
+`configure-provider.bat`도 배치한다.
+이미 purpose.md/schema.md가 있으면 덮어쓰지 말고 도구만 업데이트한다:
+
+```bash
+python $SCRIPTS/setup_workspace.py "<wiki-root>"
+```
 
 ## 2. 인제스트 (원본 보관 + 텍스트 추출)
 
 ```bash
-python $SCRIPTS/ingest.py --root "<wiki-root>" "<문서폴더>" --link hardlink
+python "<wiki-root>/tools/ingest.py" --root "<wiki-root>" "<문서폴더>" --link hardlink
 ```
 
 - 중복은 sha256 스킵
@@ -89,15 +96,51 @@ python $SCRIPTS/ingest.py --root "<wiki-root>" "<문서폴더>" --link hardlink
 
 상세 체크리스트: `references/compile-checklist.md`
 
-## 4. 색인 + 3D 그래프 + 실행
+## 4. 색인 + 원클릭 실행
 
 ```bash
-python $SCRIPTS/reindex.py --root "<wiki-root>"
-python $SCRIPTS/build_graph_view.py --root "<wiki-root>"
-python $SCRIPTS/open_graph.py --root "<wiki-root>"
+python "<wiki-root>/tools/reindex.py" --root "<wiki-root>"
+python "<wiki-root>/tools/launch_wiki.py" --root "<wiki-root>"
 ```
 
-`wiki/graph-view.html` 이 브라우저로 열린다. 사용자에게 경로를 알려 준다.
+Windows에서는 `<wiki-root>/start-llm-wiki.bat`을 더블클릭해도 된다. 런처는:
+
+1. `graph-view.html`/`constellation.html`이 없으면 생성
+2. 기존 `/health`와 PID를 확인해 중복 실행 방지
+3. 충돌이 없는 포트에서 `127.0.0.1` 전용 브릿지 시작
+4. 검색 중심 `constellation.html`을 기본 브라우저로 열기
+
+브라우저 HTML 자체는 보안 제약상 Python 프로세스를 시작할 수 없다. 반드시 workspace
+런처를 사용한다. 종료:
+
+```bash
+python "<wiki-root>/tools/launch_wiki.py" --root "<wiki-root>" --stop
+```
+
+브릿지는 임의 명령 실행 endpoint를 제공하지 않는다. `/search`는 항상 로컬이다.
+`/ask`는 `LLMWIKI_AI_ENABLED=1`일 때만 제한된 상위 5개 발췌(총 12KiB 이하)를
+선택한 AI에 전달한다.
+
+AI 설정은 사용자의 **로컬 터미널**에서만 한다. 키를 채팅에 요청하거나 코드·문서·URL·
+명령행 인자에 넣지 않는다:
+
+```bash
+python "<wiki-root>/tools/configure_provider.py"
+```
+
+Windows는 `<wiki-root>/configure-provider.bat`을 더블클릭해도 된다. 선택지:
+
+- `claude-cli`: 설치·로그인된 Claude CLI 사용, 별도 API 키 불필요
+- `openrouter|openai|gemini|anthropic`: 해당 키 하나만 있어도 사용 가능
+- 저장: workspace `.env`(기본 권장), Windows 사용자 환경변수, 저장 없는 1회 실행
+
+`LLMWIKI_PROVIDER=auto|claude-cli|openrouter|openai|gemini|anthropic`. `auto` 우선순위는
+Claude CLI → OpenRouter → OpenAI → Gemini → Anthropic이며, 선택 후 오류가 나도 기본은
+다른 공급자로 문맥을 보내지 않는다. 공급자 간 fallback은 사용자가
+`LLMWIKI_ALLOW_PROVIDER_FALLBACK=1`로 명시한 경우만 허용한다.
+
+`.env`와 Windows 사용자 환경변수는 평문이므로 workspace/OS 계정 접근 권한을 제한한다.
+민감 자료는 `LLMWIKI_AI_ENABLED=0`으로 AI 전송을 끄고 로컬 검색만 사용한다.
 
 ## 5. 질의 모드
 
@@ -109,6 +152,9 @@ python $SCRIPTS/open_graph.py --root "<wiki-root>"
 - 한국어, 한 페이지 한 주제, 병합(덮어쓰기 금지)
 - 불확실 → `> ⚠️ 검토 필요:`
 - 다른 에이전트가 같은 위키 작업 중이면 컴파일 중단
+- 공개 스킬에는 코드·빈 템플릿·프리셋만 둔다.
+- 개인 문서와 생성 데이터(`raw/sources`, `raw/extracted`, `wiki`, `.llmwiki`,
+  manifest, 절대 개인 경로)는 사용자 workspace에만 두고 공개 저장소로 복사하지 않는다.
 
 ## npx 설치 (사용자용)
 

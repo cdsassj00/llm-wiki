@@ -7,6 +7,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+from setup_workspace import install_tools
+
 TODAY = date.today().isoformat()
 
 PRESETS = {
@@ -210,11 +212,17 @@ def bootstrap(root: Path, preset: str, title: str) -> None:
         wiki / "overview.md",
         f"# 개요 (Overview)\n\n**{title}** · preset `{preset}` ({cfg['label']})\n",
     )
+    installed = install_tools(root)
 
     print(f"bootstrap OK: {root}")
     print(f"  preset={preset} ({cfg['label']})")
     print(f"  folders={', '.join(cfg['folders'])}")
-    print("다음: python scripts/ingest.py --root <wiki> <문서폴더> --link hardlink")
+    print(
+        f"  managed tools={len(installed)} + start-llm-wiki.bat/.ps1 "
+        "+ configure-provider.bat"
+    )
+    print("선택: configure-provider.bat으로 AI 공급자를 로컬에서 설정")
+    print("다음: python tools/ingest.py --root <wiki> <문서폴더> --link hardlink")
 
 
 def main() -> int:

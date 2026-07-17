@@ -33,23 +33,6 @@ def _bind_root(root: Path) -> None:
     WIKI = ROOT / "wiki"
     OUT = WIKI / "graph-view.html"
 
-PROJECT_PARENTS = [
-    "_antigravity", "_clawd", "_codex", "_cursor_project", "_snsautomation",
-    "_visual_studio", "_독립프로그램테스트", "_claudecode", "_claudeCowork",
-]
-
-TOOL_HINT = {
-    "_claudecode": "claude",
-    "_claudeCowork": "claude",
-    "_codex": "codex",
-    "_cursor_project": "cursor .   (Cursor 앱)",
-    "_antigravity": "(Antigravity 앱에서 폴더 열기)",
-    "_visual_studio": "code .   (또는 Visual Studio)",
-    "_독립프로그램테스트": "code .",
-    "_snsautomation": "code .",
-    "_clawd": "claude",
-}
-
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 WIKILINK_RE = re.compile(r"\[\[(.+?)\]\]")
 BACKTICK_PATH_RE = re.compile(r"`([A-Za-z]:\\[^`]+)`")
@@ -67,6 +50,17 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
         km = re.search(rf"^{key}:\s*(.+)$", fm_text, re.MULTILINE)
         if km:
             fm[key] = km.group(1).strip().strip("\"'")
+    for key in ("aliases", "tags", "keywords"):
+        block = re.search(
+            rf"^{key}:\s*(?:\n((?:[ \t]+-\s*.*(?:\n|$))*))?",
+            fm_text,
+            re.MULTILINE,
+        )
+        if block:
+            fm[key] = [
+                item.strip().strip("\"'")
+                for item in re.findall(r"^[ \t]+-\s*(.+)$", block.group(1) or "", re.MULTILINE)
+            ]
     return fm, body
 
 
@@ -86,13 +80,6 @@ def find_folder_path(body: str) -> str | None:
         raw = urllib.parse.unquote(m.group(1))
         return raw.replace("/", "\\")
     return None
-
-
-def tool_hint_for(folder_path: str) -> tuple[str | None, bool]:
-    for parent in PROJECT_PARENTS:
-        if f"\\{parent}\\" in folder_path or folder_path.rstrip("\\").endswith(f"\\{parent}"):
-            return TOOL_HINT.get(parent), True
-    return None, False
 
 
 def main() -> int:
@@ -116,14 +103,15 @@ def main() -> int:
             "type": fm.get("type", "unknown"),
             "file": rel,
             "body": body.strip(),
+            "aliases": fm.get("aliases", []),
+            "tags": fm.get("tags", []),
+            "keywords": fm.get("keywords", []),
+            "outlinks": [],
+            "backlinks": [],
         }
         folder = find_folder_path(body)
         if folder:
             node["folder"] = folder
-            hint, is_code = tool_hint_for(folder)
-            if hint:
-                node["toolHint"] = hint
-            node["isCodeFolder"] = is_code
         nodes.append(node)
         title_to_id[title] = rel
 
@@ -131,6 +119,7 @@ def main() -> int:
     seen_pairs = set()
     undirected_seen = set()
     incoming: dict[str, list[str]] = {}
+    node_by_id = {node["id"]: node for node in nodes}
     for node in nodes:
         for m in WIKILINK_RE.finditer(node["body"]):
             target_title, _display = split_wikilink(m.group(1))
@@ -143,6 +132,8 @@ def main() -> int:
             seen_pairs.add(pair)
             undirected_seen.add(frozenset((node["id"], target_id)))
             links.append({"source": node["id"], "target": target_id, "kind": "wikilink"})
+            node["outlinks"].append(target_id)
+            node_by_id[target_id]["backlinks"].append(node["id"])
             incoming.setdefault(target_id, []).append(node["id"])
 
     # "형제" 보조선: 같은 허브 하나를 같이 가리키는 노드끼리 얇은 링크로 연결해
@@ -258,6 +249,11 @@ HTML_TEMPLATE = r"""<!doctype html>
   #suggestList div { padding: 6px 10px; font-size: .85em; cursor: pointer; }
   #suggestList div:hover { background: #202838; }
   #suggestList div .snippet { color: #8b96a8; font-size: .85em; margin-top: 2px; }
+  #suggestList .result-meta { color: #6f819a; font-size: .75em; margin-top: 2px; }
+  #suggestList .empty { color: #aab5c5; cursor: default; line-height: 1.5; }
+  #panel .relations { display: grid; gap: 7px; }
+  #panel .relation-btn { text-align: left; height: auto; padding: 8px 10px; }
+  #panel .relation-btn small { display: block; color: #8b96a8; margin-top: 3px; }
   #hud .row { display: flex; gap: 6px; }
   #hud .row button {
     background: #131722; border: 1px solid #2a3140; color: #cfe0ff; border-radius: 6px;
@@ -367,7 +363,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 </div>
 <div id="chatPanel">
   <div id="chatHeader">
-    <span>🤖 위키에게 물어보기 (로컬, agent_bridge.py 필요)</span>
+    <span>🤖 위키에게 물어보기 · <span id="bridgeStatus">브릿지 확인 중</span></span>
     <button id="chatCloseBtn">✕</button>
   </div>
   <div id="chatMessages"></div>
@@ -710,18 +706,9 @@ function openPanel(n) {
   const rendered = DOMPurify.sanitize(marked.parse(mdSource));
 
   let actions = `<a href="#" onclick="return false;" style="border-color:${colorFor(n.type)}">${n.type}</a>`;
-  let cmdForCopy = null;
   if (n.folder) {
     const fileUri = "file:///" + n.folder.replace(/\\/g, "/");
     actions += `<a href="${escapeHtml(fileUri)}" target="_blank">📂 탐색기에서 열기</a>`;
-    if (n.isCodeFolder) {
-      const vscodeUri = "vscode://file/" + n.folder.replace(/\\/g, "/");
-      actions += `<a href="${escapeHtml(vscodeUri)}">🖥 VSCode로 열기</a>`;
-      if (n.toolHint) {
-        cmdForCopy = `cd /d "${n.folder}" && ${n.toolHint}`;
-        actions += `<button class="copy-cmd-btn">📋 실행 명령 복사</button>`;
-      }
-    }
   }
 
   document.getElementById("panel").classList.add("open");
@@ -730,6 +717,8 @@ function openPanel(n) {
     <div class="meta">${escapeHtml(n.file)}</div>
     <div class="actions">${actions}</div>
     <div class="content">${rendered}</div>
+    <h3>연결 문서</h3><div class="relations">${relationHtml(n.outlinks)}</div>
+    <h3>이 문서를 가리키는 문서</h3><div class="relations">${relationHtml(n.backlinks)}</div>
   `;
   body.querySelectorAll('a[href^="#node:"]').forEach(a => {
     a.addEventListener("click", (ev) => {
@@ -738,10 +727,19 @@ function openPanel(n) {
       focusNode(id, true);
     });
   });
-  const copyBtn = body.querySelector(".copy-cmd-btn");
-  if (copyBtn && cmdForCopy) {
-    copyBtn.addEventListener("click", () => copyCmd(copyBtn, cmdForCopy));
-  }
+  body.querySelectorAll(".relation-btn").forEach(button => {
+    button.addEventListener("click", () => focusNode(button.dataset.id, true));
+  });
+}
+
+function relationHtml(ids) {
+  if (!ids || !ids.length) return `<small>연결된 문서가 없습니다.</small>`;
+  return ids.map(id => {
+    const related = byId[id];
+    if (!related) return "";
+    const preview = related.body.replace(/\s+/g, " ").slice(0, 100);
+    return `<button class="relation-btn" data-id="${escapeHtml(id)}"><b>${escapeHtml(related.title)}</b><small>${escapeHtml(related.type)} · ${escapeHtml(preview)}</small></button>`;
+  }).join("");
 }
 
 function closePanel() {
@@ -754,48 +752,43 @@ function closePanel() {
   Graph.linkDirectionalParticles(Graph.linkDirectionalParticles());
 }
 
-function copyCmd(btn, cmd) {
-  navigator.clipboard.writeText(cmd).then(() => {
-    const old = btn.textContent;
-    btn.textContent = "복사됨!";
-    setTimeout(() => btn.textContent = old, 1200);
-  });
+const normalizeSearch = value => String(value || "").normalize("NFKC").toLocaleLowerCase("ko").replace(/[\s\p{P}\p{S}]+/gu, "");
+const searchIndex = DATA.nodes.map(n => ({
+  n,
+  title: normalizeSearch(n.title),
+  aliases: normalizeSearch((n.aliases || []).join(" ")),
+  tags: normalizeSearch([...(n.tags || []), ...(n.keywords || [])].join(" ")),
+  body: normalizeSearch(n.body),
+  path: normalizeSearch(`${n.file} ${n.type}`),
+}));
+function fieldScore(value, q, exact, prefix, substring) {
+  if (!value) return 0;
+  if (value === q) return exact;
+  if (value.startsWith(q)) return prefix;
+  return value.includes(q) ? substring : 0;
 }
-
-// Fuse.js 기반 오타 허용 검색(제목 가중치 높게, 본문도 포함) — 활성 타입 필터가 있으면 그 안에서만.
-const fuse = new Fuse(DATA.nodes, {
-  keys: [
-    { name: "title", weight: 0.7 },
-    { name: "body", weight: 0.3 },
-  ],
-  threshold: 0.35,
-  ignoreLocation: true,
-  minMatchCharLength: 2,
-  includeMatches: true,
-});
-
-function snippetFromMatch(body, match) {
-  if (!match || !match.indices || !match.indices.length) return "";
-  const [s, e] = match.indices[0];
-  const start = Math.max(0, s - 25);
-  const end = Math.min(body.length, e + 46);
-  return (start > 0 ? "…" : "") + body.slice(start, end).replace(/\s+/g, " ") + (end < body.length ? "…" : "");
+function matchingSnippet(n, rawQuery) {
+  const text = n.body.replace(/\s+/g, " ");
+  let position = text.toLocaleLowerCase("ko").indexOf(rawQuery.toLocaleLowerCase("ko"));
+  if (position < 0) position = 0;
+  const start = Math.max(0, position - 35), end = Math.min(text.length, position + 95);
+  return (start ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : "");
 }
 
 function searchMatches(q, limit) {
   if (!q) return [];
-  let results = fuse.search(q);
-  if (activeTypeFilter) results = results.filter(r => r.item.type === activeTypeFilter);
-  if (limit) results = results.slice(0, limit);
-  return results.map(r => {
-    const titleMatch = (r.matches || []).find(m => m.key === "title");
-    const bodyMatch = (r.matches || []).find(m => m.key === "body");
-    return {
-      n: r.item,
-      kind: titleMatch ? "title" : "body",
-      snippet: bodyMatch ? snippetFromMatch(r.item.body, bodyMatch) : "",
-    };
-  });
+  const normalized = normalizeSearch(q);
+  let results = searchIndex.map(item => {
+    let score = fieldScore(item.title, normalized, 10000, 8500, 7000);
+    score += fieldScore(item.aliases, normalized, 6000, 5200, 4400);
+    score += fieldScore(item.tags, normalized, 4200, 3600, 3000);
+    score += fieldScore(item.body, normalized, 2200, 1800, 1200);
+    score += fieldScore(item.path, normalized, 900, 750, 550);
+    return score ? { n: item.n, score, snippet: matchingSnippet(item.n, q) } : null;
+  }).filter(Boolean);
+  if (activeTypeFilter) results = results.filter(r => r.n.type === activeTypeFilter);
+  results.sort((a, b) => b.score - a.score || (degree[b.n.id] || 0) - (degree[a.n.id] || 0) || a.n.title.localeCompare(b.n.title, "ko"));
+  return limit ? results.slice(0, limit) : results;
 }
 
 const searchInput = document.getElementById("search");
@@ -805,25 +798,23 @@ searchInput.addEventListener("input", () => {
   suggestList.innerHTML = "";
   if (!q) { suggestList.style.display = "none"; if (listPanel.classList.contains("open")) renderList(); return; }
   const matches = searchMatches(q, 15);
-  matches.forEach(({ n, kind, snippet }) => {
+  matches.forEach(({ n, snippet }) => {
     const row = document.createElement("div");
-    if (kind === "title") {
-      row.textContent = `${n.title} [${n.type}]`;
-    } else {
-      row.innerHTML = `${escapeHtml(n.title)} [${n.type}]<div class="snippet">${escapeHtml(snippet)}</div>`;
-    }
+    row.innerHTML = `<b>${escapeHtml(n.title)}</b><div class="result-meta">${escapeHtml(n.type)} · ${escapeHtml(n.file)} · 연결 ${degree[n.id] || 0}</div><div class="snippet">${escapeHtml(snippet)}</div>`;
     row.onclick = () => { focusNode(n.id, true); suggestList.style.display = "none"; };
     suggestList.appendChild(row);
   });
-  suggestList.style.display = matches.length ? "block" : "none";
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "일치하는 위키 문서가 없습니다. 다른 표현이나 더 짧은 핵심어를 사용해 보세요. 아직 컴파일되지 않은 원본은 검색되지 않습니다.";
+    suggestList.appendChild(empty);
+  }
+  suggestList.style.display = "block";
   if (listPanel.classList.contains("open")) renderList();
 });
 searchInput.addEventListener("keydown", (ev) => {
-  if (ev.key === "Enter") {
-    const q = searchInput.value.trim().toLowerCase();
-    const hit = searchMatches(q, 1)[0];
-    if (hit) { focusNode(hit.n.id, true); suggestList.style.display = "none"; }
-  }
+  if (ev.key === "Escape") suggestList.style.display = "none";
 });
 
 // 처음 화면으로: 필터·검색·하이라이트 다 지우고 전체 그래프가 보이게 리셋
@@ -876,6 +867,17 @@ const chatMessages = document.getElementById("chatMessages");
 const chatInput = document.getElementById("chatInput");
 const chatSendBtn = document.getElementById("chatSendBtn");
 const chatToggleBtn = document.getElementById("chatToggleBtn");
+const bridgeStatus = document.getElementById("bridgeStatus");
+
+fetch("/health").then(response => response.ok ? response.json() : Promise.reject()).then(data => {
+  const ai = data.ai || {};
+  bridgeStatus.textContent = ai.available
+    ? `연결됨 · ${ai.provider} / ${ai.model}`
+    : "연결됨 · AI 꺼짐/미설정 (configure-provider.bat 실행)";
+  bridgeStatus.title = ai.externalContextNotice || "";
+}).catch(() => {
+  bridgeStatus.textContent = "오프라인";
+});
 
 chatToggleBtn.addEventListener("click", () => {
   chatPanel.classList.toggle("open");
@@ -966,7 +968,8 @@ async function sendChat() {
       appendChatMessage("error", escapeHtml(data.error || "오류가 발생했습니다"));
       return;
     }
-    const div = appendChatMessage("assistant", DOMPurify.sanitize(marked.parse(data.answer || "")));
+    const providerLabel = data.provider ? `<small>${escapeHtml(data.provider)} · ${escapeHtml(data.model || "")}</small><br>` : "";
+    const div = appendChatMessage("assistant", providerLabel + DOMPurify.sanitize(marked.parse(data.answer || "")));
     if (data.referenced && data.referenced.length) {
       const refsDiv = document.createElement("div");
       refsDiv.className = "refs";
@@ -983,8 +986,8 @@ async function sendChat() {
     thinking.remove();
     appendChatMessage(
       "error",
-      "AI 브릿지 서버에 연결할 수 없습니다. 터미널에서 <code>python tools/agent_bridge.py</code>를 " +
-      "실행한 뒤 <code>http://127.0.0.1:8787/graph-view.html</code> 로 다시 열어주세요."
+      "AI 브릿지에 연결할 수 없습니다. workspace의 <code>start-llm-wiki.bat</code> 또는 " +
+      "<code>python tools/launch_wiki.py --root . --view graph-view.html</code>로 다시 여세요."
     );
   } finally {
     chatInput.disabled = false;

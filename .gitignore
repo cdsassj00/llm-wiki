@@ -11,11 +11,19 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Local wiki workspaces (do not commit user data)
-**/raw/sources/
-**/raw/extracted/
-**/.llmwiki/manifest.json
+# Local wiki workspaces (do not commit user data or generated artifacts)
+**/raw/
+**/wiki/
+**/.llmwiki/
+**/handoffs/
+*.pid
+*.log
+**/.env
+**/.env.*
+!**/.env.example
 
 # Test output
 /tmp-wiki/
 /test-wiki/
+/tmp-*/
+/test-*/
