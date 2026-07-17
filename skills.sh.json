@@ -1,0 +1,11 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "LLM Wiki",
+      "description": "Turn document folders into a searchable markdown wiki with a 3D knowledge graph.",
+      "skills": ["llm-wiki"]
+    }
+  ]
+}

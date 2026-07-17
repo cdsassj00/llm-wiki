@@ -1,0 +1,13 @@
+# LLM Wiki 인제스트 도구 의존성
+# 설치:  pip install -r tools/requirements.txt
+
+# 다양한 문서 → 마크다운 변환 (pdf, docx, pptx, xlsx, csv, html …)
+markitdown[all]>=0.0.1a3
+
+# (선택) hwpx 가 LibreOffice 로 변환되지 않을 때 폴백
+#   pip install pyhwpx
+#
+# 참고: hwp / hwpx / 구형 ppt·doc 변환에는 LibreOffice(soffice)가 필요합니다.
+#   - macOS:  brew install --cask libreoffice
+#   - Ubuntu: sudo apt install libreoffice
+#   - Windows: https://www.libreoffice.org/download
