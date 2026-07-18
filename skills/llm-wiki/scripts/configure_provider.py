@@ -2,6 +2,7 @@
 """Interactively configure an LLM Wiki provider without echoing API keys."""
 from __future__ import annotations
 
+import argparse
 import getpass
 import os
 import subprocess
@@ -56,7 +57,12 @@ def choose(prompt: str, allowed: set[str]) -> str:
 
 
 def main() -> int:
-    root = find_wiki_root(None)
+    parser = argparse.ArgumentParser(
+        description="Configure an LLM Wiki AI provider with hidden key input"
+    )
+    parser.add_argument("--root", default=None, help="Wiki workspace root")
+    args = parser.parse_args()
+    root = find_wiki_root(args.root)
     print("LLM Wiki AI 공급자 설정")
     print("키를 채팅, 명령행 인자, URL에 붙여넣지 마세요. 아래 입력은 화면에 표시되지 않습니다.")
     print("1) Claude CLI (기존 로그인 사용, API 키 불필요)")

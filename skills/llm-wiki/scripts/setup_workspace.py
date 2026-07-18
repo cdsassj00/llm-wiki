@@ -20,7 +20,7 @@ MANAGED_TOOLS = (
 
 BAT_LAUNCHER = r"""@echo off
 setlocal
-python "%~dp0tools\launch_wiki.py" --root "%~dp0." %*
+python "%~dp0tools\launch_wiki.py" --root "%~dp0." --view graph-view.html %*
 if errorlevel 1 pause
 """
 
@@ -31,7 +31,7 @@ POWERSHELL_LAUNCHER = r"""param(
 
 $ErrorActionPreference = "Stop"
 $launcher = Join-Path $PSScriptRoot "tools\launch_wiki.py"
-& python $launcher --root $PSScriptRoot @Arguments
+& python $launcher --root $PSScriptRoot --view graph-view.html @Arguments
 exit $LASTEXITCODE
 """
 
@@ -90,6 +90,13 @@ def main() -> int:
         "  Cross-platform: "
         f'python "{root / "tools" / "launch_wiki.py"}" --root "{root}"'
     )
+    print("다음 단계:")
+    print(f"  로컬 검색만: {root / 'start-llm-wiki.bat'}")
+    print(
+        f"  AI 검색: {root / 'configure-provider.bat'} -> provider 설정 -> "
+        f"{root / 'start-llm-wiki.bat'}"
+    )
+    print("API 키를 채팅이나 명령행에 넣지 말고 설정 도구의 숨김 입력을 사용하세요.")
     return 0
 
 

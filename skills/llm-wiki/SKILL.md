@@ -24,6 +24,9 @@ python "<이-스킬>/scripts/ensure_agents_install.py"
 결과: `~/.agents/skills/llm-wiki/` 복사 + (가능하면) `~/.claude/skills/llm-wiki` 정션.
 
 이미 `npx skills add cdsassj00/llm-wiki -g -y` 로 설치된 경우 이 단계는 스킵 가능.
+이 설치는 **에이전트가 스킬을 찾게 하는 작업**일 뿐이다. 개인 문서를 가져가거나 Wiki
+workspace를 만들거나 API 키를 생성·설정하지 않는다. workspace bootstrap과 공급자
+설정은 사용자가 지정한 workspace 안에서 별도로 수행한다.
 
 의존성(최초 1회):
 
@@ -69,6 +72,50 @@ bootstrap은 workspace용 `tools/`, `start-llm-wiki.bat`/`.ps1`,
 python $SCRIPTS/setup_workspace.py "<wiki-root>"
 ```
 
+### 1-D. 검색 모드 온보딩 게이트 (bootstrap 직후 반드시 질문)
+
+다음 단계로 넘어가기 전에 반드시 묻는다:
+
+> 로컬 키워드 검색만 사용할까요, 아니면 LLM 기반 AI 검색/질문도 사용할까요?
+
+- **로컬 검색만**: API 키가 필요 없고 문서가 외부로 전송되지 않는다. 키 설정을
+  요구하지 말고 `start-llm-wiki.bat` 실행을 안내한다.
+- **AI 검색도 사용**: 로그인된 Claude CLI 또는 아래 API 공급자 키가 1개 이상
+  필요하다. 검색 상위 문맥만 선택 공급자로 전송됨을 먼저 알린다.
+- 사용자가 선택하지 않았거나 로컬 검색을 골랐다면 AI 키 설정을 강제하지 않는다.
+
+AI 검색을 선택한 경우 다음 중 하나를 고르게 한다:
+
+A. **Claude CLI 로그인 사용** — 별도 API 키 불필요
+B. **workspace `.env`에 저장** — 기본 권장, 해당 workspace에만 적용
+C. **Windows 사용자 환경변수에 저장** — 사용자 레지스트리 평문이며 동일 사용자
+프로세스가 읽을 수 있음을 고지
+
+API 공급자는 OpenRouter/OpenAI/Gemini/Anthropic 중 필요한 것 하나 또는 여러 개를
+설정할 수 있다. 여러 키를 요구하지 않는다. 기본 설정 방법:
+
+```bash
+"<wiki-root>/configure-provider.bat"
+# 또는
+python "<wiki-root>/tools/configure_provider.py" --root "<wiki-root>"
+```
+
+`getpass` 숨김 입력을 쓰는 위 방법을 우선 안내한다. **API 키를 채팅창에 절대
+붙여넣지 말라고 명확히 말한다. 에이전트는 키 값을 요청하거나 읽지 않고, 파일 읽기·
+환경 출력·도구 출력으로 키를 노출하지 않는다.** 사용자가 직접 로컬 설정 도구에 입력한다.
+
+PowerShell 수동 등록은 요청받은 경우에만 플레이스홀더로 안내한다:
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "<YOUR_API_KEY>", "User")
+```
+
+이 방식은 실제 키가 PowerShell 명령 기록에 남을 수 있고 Windows User 환경변수도
+평문 레지스트리에 저장된다. 실제 키를 대화나 예시 명령에 넣지 않는다. 등록 후에는
+새 값이 반영되도록 Cursor, 터미널, 에이전트 프로세스를 재시작하도록 안내한다.
+민감 키는 workspace `.env`의 접근 권한을 제한하거나 OS credential store 사용을
+고려하게 한다.
+
 ## 2. 인제스트 (원본 보관 + 텍스트 추출)
 
 ```bash
@@ -108,7 +155,10 @@ Windows에서는 `<wiki-root>/start-llm-wiki.bat`을 더블클릭해도 된다. 
 1. `graph-view.html`/`constellation.html`이 없으면 생성
 2. 기존 `/health`와 PID를 확인해 중복 실행 방지
 3. 충돌이 없는 포트에서 `127.0.0.1` 전용 브릿지 시작
-4. 검색 중심 `constellation.html`을 기본 브라우저로 열기
+4. 로컬 검색·전문 미리보기·링크/역링크·AI 채팅이 있는 `graph-view.html`을 기본 브라우저로 열기
+
+`constellation.html`은 전체 지식 지형을 둘러보는 보조 시각화로 계속 생성·서빙한다.
+실행 중인 localhost 주소에서 파일명만 `constellation.html`로 바꿔 접근할 수 있다.
 
 브라우저 HTML 자체는 보안 제약상 Python 프로세스를 시작할 수 없다. 반드시 workspace
 런처를 사용한다. 종료:
@@ -125,7 +175,7 @@ AI 설정은 사용자의 **로컬 터미널**에서만 한다. 키를 채팅에
 명령행 인자에 넣지 않는다:
 
 ```bash
-python "<wiki-root>/tools/configure_provider.py"
+python "<wiki-root>/tools/configure_provider.py" --root "<wiki-root>"
 ```
 
 Windows는 `<wiki-root>/configure-provider.bat`을 더블클릭해도 된다. 선택지:
@@ -140,7 +190,8 @@ Claude CLI → OpenRouter → OpenAI → Gemini → Anthropic이며, 선택 후 
 `LLMWIKI_ALLOW_PROVIDER_FALLBACK=1`로 명시한 경우만 허용한다.
 
 `.env`와 Windows 사용자 환경변수는 평문이므로 workspace/OS 계정 접근 권한을 제한한다.
-민감 자료는 `LLMWIKI_AI_ENABLED=0`으로 AI 전송을 끄고 로컬 검색만 사용한다.
+특히 Windows User 환경변수는 동일 사용자 프로세스가 읽을 수 있는 평문 레지스트리에
+저장된다. 민감 자료는 `LLMWIKI_AI_ENABLED=0`으로 AI 전송을 끄고 로컬 검색만 사용한다.
 
 ## 5. 질의 모드
 

@@ -307,6 +307,12 @@ HTML_TEMPLATE = r"""<!doctype html>
   }
   #chatMessages .msg .refs button:hover { background: #23385a; }
   #chatMessages .msg.error .bubble { color: #ff8b8b; }
+  #chatMessages .msg.onboarding .bubble {
+    color: #dfe6ee; background: rgba(35, 50, 72, 0.72); border: 1px solid rgba(125,184,255,.28);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  #chatMessages .msg.onboarding code { color: #b9d5ff; user-select: all; }
+  #chatMessages .msg.onboarding strong { color: #fff; }
   #chatMessages .msg .bubble p:first-child { margin-top: 0; }
   #chatMessages .msg .bubble p:last-child { margin-bottom: 0; }
   #chatMessages .export-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -868,13 +874,21 @@ const chatInput = document.getElementById("chatInput");
 const chatSendBtn = document.getElementById("chatSendBtn");
 const chatToggleBtn = document.getElementById("chatToggleBtn");
 const bridgeStatus = document.getElementById("bridgeStatus");
+let aiReady = false;
+let onboardingShown = false;
 
 fetch("/health").then(response => response.ok ? response.json() : Promise.reject()).then(data => {
   const ai = data.ai || {};
+  aiReady = Boolean(ai.available);
   bridgeStatus.textContent = ai.available
     ? `연결됨 · ${ai.provider} / ${ai.model}`
     : "연결됨 · AI 꺼짐/미설정 (configure-provider.bat 실행)";
   bridgeStatus.title = ai.externalContextNotice || "";
+  if (!aiReady) {
+    chatInput.placeholder = "AI 질문은 로컬 provider 설정 후 사용할 수 있습니다";
+    chatInput.disabled = true;
+    chatSendBtn.disabled = true;
+  }
 }).catch(() => {
   bridgeStatus.textContent = "오프라인";
 });
@@ -882,7 +896,10 @@ fetch("/health").then(response => response.ok ? response.json() : Promise.reject
 chatToggleBtn.addEventListener("click", () => {
   chatPanel.classList.toggle("open");
   chatToggleBtn.classList.remove("pulse");
-  if (chatPanel.classList.contains("open")) chatInput.focus();
+  if (chatPanel.classList.contains("open")) {
+    if (!aiReady) appendOnboarding();
+    else chatInput.focus();
+  }
 });
 document.getElementById("chatCloseBtn").addEventListener("click", () => chatPanel.classList.remove("open"));
 
@@ -893,6 +910,20 @@ function appendChatMessage(role, html) {
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
   return div;
+}
+
+function appendOnboarding() {
+  if (onboardingShown) return;
+  onboardingShown = true;
+  appendChatMessage(
+    "onboarding",
+    "<strong>AI 검색 설정이 필요합니다</strong><br><br>" +
+    "로컬 제목·본문 검색은 API 키 없이 계속 사용할 수 있고 문서를 외부로 전송하지 않습니다.<br><br>" +
+    "AI 질문을 사용하려면 workspace에서 <code>configure-provider.bat</code> 또는 " +
+    "<code>python tools/configure_provider.py --root .</code>를 실행한 뒤 " +
+    "<code>start-llm-wiki.bat</code>으로 다시 여세요.<br><br>" +
+    "API 키는 이 브라우저나 채팅에 입력하지 마세요. 설정 도구가 숨김 입력으로 받습니다."
+  );
 }
 
 // 답변을 그냥 보여주고 끝내지 않고, 다음 작업(코딩 에이전트에게 이어주기)의 재료로
@@ -965,7 +996,11 @@ async function sendChat() {
     const data = await res.json();
     thinking.remove();
     if (!res.ok) {
-      appendChatMessage("error", escapeHtml(data.error || "오류가 발생했습니다"));
+      if (data.onboarding) {
+        aiReady = false;
+        appendOnboarding();
+      }
+      else appendChatMessage("error", escapeHtml(data.error || "오류가 발생했습니다"));
       return;
     }
     const providerLabel = data.provider ? `<small>${escapeHtml(data.provider)} · ${escapeHtml(data.model || "")}</small><br>` : "";
@@ -990,9 +1025,9 @@ async function sendChat() {
       "<code>python tools/launch_wiki.py --root . --view graph-view.html</code>로 다시 여세요."
     );
   } finally {
-    chatInput.disabled = false;
-    chatSendBtn.disabled = false;
-    chatInput.focus();
+    chatInput.disabled = !aiReady;
+    chatSendBtn.disabled = !aiReady;
+    if (aiReady) chatInput.focus();
   }
 }
 chatSendBtn.addEventListener("click", sendChat);

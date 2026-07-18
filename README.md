@@ -12,6 +12,11 @@ npx skills add cdsassj00/llm-wiki -g -a '*' -y
 
 설치 위치: `~/.agents/skills/llm-wiki` (에이전트 공용)
 
+이 명령은 에이전트가 스킬을 찾도록 **스킬 코드만 설치**합니다. 개인 문서를 읽거나
+복사하지 않고, Wiki workspace나 API 키도 만들지 않습니다. `ensure_agents_install.py`
+역시 같은 설치 작업입니다. 실제 workspace bootstrap과 AI 설정은 이후 사용자가 지정한
+로컬 workspace에서만 수행됩니다.
+
 또는 레포 클론 후:
 
 ```bash
@@ -25,7 +30,30 @@ pip install -r skills/llm-wiki/assets/requirements.txt
 - "/llm-wiki"
 - "문서 정리해서 3D 그래프까지"
 
-에이전트가 경로·온톨로지 프리셋을 물은 뒤 자동으로 진행한다.
+에이전트가 경로·온톨로지 프리셋을 물은 뒤 검색 모드를 확인하고 진행합니다.
+
+## 처음 설치부터 실행까지
+
+1. 위 명령으로 공개 스킬을 설치합니다.
+2. 에이전트에게 “빈 폴더에 이 문서들로 위키를 만들어줘”라고 요청합니다.
+3. 에이전트가 문서 폴더, Wiki workspace, 온톨로지 프리셋을 확인하고 bootstrap합니다.
+4. 다음 질문에 답합니다.
+   > 로컬 키워드 검색만 사용할까요, 아니면 LLM 기반 AI 검색/질문도 사용할까요?
+5. **로컬 검색만** 선택하면 키 설정 없이 `start-llm-wiki.bat`을 실행합니다. 문서는
+   외부로 전송되지 않습니다.
+6. **AI 검색도 사용**하면 다음 중 하나를 선택합니다.
+   - Claude CLI 로그인: 별도 API 키 불필요
+   - workspace `.env`: 권장, 해당 workspace에만 적용
+   - Windows 사용자 환경변수: 사용자 레지스트리 평문 저장 한계가 있음
+7. OpenRouter/OpenAI/Gemini/Anthropic 중 사용할 공급자 하나 이상을 설정합니다. 모든
+   키를 요구하지 않으며, 공급자 하나만으로 충분합니다.
+8. `start-llm-wiki.bat`을 실행합니다. provider가 없어도 HTML과 로컬 검색은 정상
+   실행되며, AI 버튼은 브라우저에서 키를 받는 대신 로컬 설정 방법을 보여줍니다.
+
+기본 실행 화면은 `graph-view.html`입니다. 로컬 검색, 문서 전문 미리보기, 링크·역링크,
+AI 채팅(`/ask`)을 한 화면에서 제공합니다. `constellation.html`은 같은 localhost
+브릿지에서 계속 제공되는 전체 지식 지형용 보조 시각화이며, 실행 주소의 파일명만
+`constellation.html`로 바꿔 열 수 있습니다.
 
 ## Manual CLI
 
@@ -38,7 +66,7 @@ python ./my-wiki/tools/ingest.py --root ./my-wiki "/path/to/docs" --link hardlin
 
 # 3) (agent compiles wiki/*.md)
 
-# 4) index + bridge + 3D graph
+# 4) index + bridge + 기본 graph-view
 python ./my-wiki/tools/reindex.py --root ./my-wiki
 python ./my-wiki/tools/launch_wiki.py --root ./my-wiki
 ```
@@ -90,7 +118,7 @@ Bridge API:
 ### AI 공급자 설정
 
 ```bash
-python ./my-wiki/tools/configure_provider.py
+python ./my-wiki/tools/configure_provider.py --root ./my-wiki
 ```
 
 환경 변수:
@@ -117,6 +145,32 @@ python ./my-wiki/tools/configure_provider.py
 workspace 파일 권한을 제한하세요. Windows 사용자 환경변수도 사용자 레지스트리에
 평문으로 저장되어 같은 사용자 프로세스가 읽을 수 있습니다. 이미 열린 앱에는 즉시
 반영되지 않을 수 있으며 런처는 레지스트리를 직접 읽어 이를 보완합니다.
+
+#### PowerShell과 키 보안
+
+가장 안전한 기본 흐름은 다음 숨김 입력 도구입니다.
+
+```powershell
+.\my-wiki\configure-provider.bat
+# 또는
+python .\my-wiki\tools\configure_provider.py --root .\my-wiki
+```
+
+**API 키를 Cursor/Claude/Codex 채팅창, 브라우저 AI 질문창, URL 또는 명령행 인자에
+붙여넣지 마세요.** 에이전트에게 키 값을 알려주지 말고 위 설정 도구의 `getpass` 숨김
+입력에 사용자가 직접 입력해야 합니다.
+
+수동 Windows User 환경변수 등록도 가능하지만 아래처럼 **플레이스홀더만** 사용해
+작성해야 합니다.
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "<YOUR_API_KEY>", "User")
+```
+
+실제 키를 위 명령에 직접 쓰면 PowerShell 명령 기록에 남을 수 있습니다. Windows User
+환경변수는 동일 사용자 프로세스가 읽을 수 있는 평문 레지스트리 값입니다. 등록 후 새
+Cursor, 터미널, 에이전트 프로세스를 시작해야 일반적으로 반영됩니다. 민감 키는 접근
+권한을 제한한 workspace `.env` 또는 OS credential store를 고려하세요.
 
 ### Presets
 
@@ -147,6 +201,13 @@ skills/llm-wiki/
 
 공개 저장소에는 재사용 가능한 코드, 빈 템플릿, 온톨로지 프리셋만 포함합니다.
 사용자의 원문과 추출·컴파일 결과는 해당 workspace에만 저장합니다.
+
+- 로컬 검색은 외부 전송이 없습니다.
+- AI 검색은 검색 상위 5개 문서의 제한된 발췌(총 12KiB 이하)만 사용자가 선택한
+  공급자로 전송합니다.
+- `LLMWIKI_AI_ENABLED=0`으로 AI 전송을 명시적으로 끌 수 있습니다.
+- Windows User 환경변수는 동일 사용자 프로세스가 읽을 수 있는 평문 레지스트리
+  저장소입니다.
 
 공개 배포에서 제외되는 항목:
 

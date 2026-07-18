@@ -15,7 +15,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from agent_bridge import HOST, root_fingerprint
+from agent_bridge import HOST, provider_status, root_fingerprint
 from wiki_paths import find_wiki_root
 
 PORT_SCAN_COUNT = 20
@@ -290,7 +290,7 @@ def main() -> int:
     parser.add_argument(
         "--view",
         choices=("constellation.html", "graph-view.html"),
-        default="constellation.html",
+        default="graph-view.html",
     )
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--no-browser", action="store_true")
@@ -324,11 +324,13 @@ def main() -> int:
         return 1
 
     url = f"http://{HOST}:{port}/{args.view}"
+    ai_status = (health(port) or {}).get("ai") or provider_status()
     result = {
         "url": url,
         "port": port,
         "alreadyRunning": already_running,
         "pid": pid,
+        "ai": ai_status,
         "log": str(root / ".llmwiki" / "bridge.log"),
         "stopCommand": (
             f'"{sys.executable}" "{script_dir / "launch_wiki.py"}" '
@@ -342,6 +344,24 @@ def main() -> int:
         print(f"{state}: {url}")
         print(f"로그: {result['log']}")
         print(f"종료: {result['stopCommand']}")
+        if ai_status.get("available"):
+            print(
+                f"AI 검색 준비됨: {ai_status.get('provider')} / "
+                f"{ai_status.get('model')}"
+            )
+        elif ai_status.get("enabled"):
+            print("AI 검색 공급자가 아직 설정되지 않았습니다.")
+            print("  로컬 검색과 HTML은 그대로 사용할 수 있습니다.")
+            print(
+                "  AI 설정: configure-provider.bat 또는 "
+                "python tools/configure_provider.py --root ."
+            )
+        else:
+            print("로컬 검색 모드: API 키 없이 사용하며 문서를 외부로 전송하지 않습니다.")
+            print(
+                "  AI 검색도 사용하려면 configure-provider.bat을 실행하세요 "
+                "(키를 채팅에 붙여넣지 마세요)."
+            )
     if not args.no_browser:
         webbrowser.open(url)
     return 0

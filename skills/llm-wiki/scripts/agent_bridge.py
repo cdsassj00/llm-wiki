@@ -57,6 +57,27 @@ SYSTEM_INSTRUCTION = (
 )
 
 
+class AISetupRequired(RuntimeError):
+    """AI is opt-in and needs local provider setup before /ask can run."""
+
+
+def onboarding_payload() -> dict:
+    return {
+        "title": "AI 검색 설정이 필요합니다",
+        "localSearchAvailable": True,
+        "message": (
+            "로컬 검색은 API 키 없이 계속 사용할 수 있으며 문서를 외부로 전송하지 않습니다."
+        ),
+        "commands": [
+            "configure-provider.bat",
+            "python tools/configure_provider.py --root .",
+        ],
+        "security": (
+            "API 키를 브라우저나 채팅에 입력하지 말고 로컬 설정 도구의 숨김 입력을 사용하세요."
+        ),
+    }
+
+
 def root_fingerprint(root: Path) -> str:
     normalized = str(root.resolve()).replace("\\", "/").casefold()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
@@ -152,6 +173,7 @@ def provider_status() -> dict:
             if provider
             else "AI가 꺼져 있거나 공급자가 설정되지 않았습니다. 로컬 검색은 계속 사용할 수 있습니다."
         ),
+        "onboarding": None if enabled and configured else onboarding_payload(),
     }
 
 
@@ -374,14 +396,20 @@ def ask_api(
 
 def ask_provider(question: str, pages: list[dict], root: Path) -> tuple[str, str]:
     if not env_flag("LLMWIKI_AI_ENABLED", default=False):
-        raise RuntimeError(
+        raise AISetupRequired(
             "AI 질의가 꺼져 있습니다(LLMWIKI_AI_ENABLED=0). 로컬 검색은 계속 사용할 수 있습니다."
         )
     candidates = provider_candidates()
     if not candidates:
-        raise RuntimeError(
+        raise AISetupRequired(
             "설정된 AI 공급자가 없습니다. configure-provider.bat 또는 "
             "python tools/configure_provider.py를 로컬 터미널에서 실행하세요."
+        )
+    if not any(provider_configured(provider) for provider in candidates):
+        raise AISetupRequired(
+            "선택한 AI 공급자의 키 또는 Claude CLI를 찾지 못했습니다. "
+            "configure-provider.bat 또는 python tools/configure_provider.py --root .을 "
+            "로컬에서 실행하세요."
         )
     allow_fallback = env_flag("LLMWIKI_ALLOW_PROVIDER_FALLBACK", default=False)
     prompt = build_prompt(question, pages)
@@ -533,6 +561,11 @@ class Handler(BaseHTTPRequestHandler):
             handler()
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
+        except AISetupRequired as exc:
+            self._send_json(
+                503,
+                {"error": redact_secrets(str(exc)), "onboarding": onboarding_payload()},
+            )
         except RuntimeError as exc:
             self._send_json(503, {"error": redact_secrets(str(exc))})
         except Exception as exc:  # noqa: BLE001
@@ -637,7 +670,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="LLM Wiki localhost bridge")
     parser.add_argument("--root", default=None, help="Wiki workspace root")
     parser.add_argument("--port", type=int, default=8787)
-    parser.add_argument("--view", default="constellation.html")
+    parser.add_argument("--view", default="graph-view.html")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("--port는 1~65535 범위여야 합니다.")

@@ -221,8 +221,14 @@ def bootstrap(root: Path, preset: str, title: str) -> None:
         f"  managed tools={len(installed)} + start-llm-wiki.bat/.ps1 "
         "+ configure-provider.bat"
     )
-    print("선택: configure-provider.bat으로 AI 공급자를 로컬에서 설정")
-    print("다음: python tools/ingest.py --root <wiki> <문서폴더> --link hardlink")
+    print("다음 단계:")
+    print("  로컬 검색만: start-llm-wiki.bat")
+    print(
+        "  AI 검색: configure-provider.bat -> provider 설정 -> "
+        "start-llm-wiki.bat"
+    )
+    print("  문서 추가: python tools/ingest.py --root <wiki> <문서폴더> --link hardlink")
+    print("API 키를 채팅이나 명령행에 넣지 말고 설정 도구의 숨김 입력을 사용하세요.")
 
 
 def main() -> int:

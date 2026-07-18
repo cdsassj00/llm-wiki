@@ -108,6 +108,41 @@ class ProviderTests(unittest.TestCase):
         self.assertNotIn("never-return-this", encoded)
         self.assertIn("****", encoded)
 
+    def test_unconfigured_status_includes_safe_onboarding(self):
+        with patch.dict(
+            os.environ,
+            {"LLMWIKI_AI_ENABLED": "0"},
+            clear=True,
+        ):
+            status = bridge.provider_status()
+            encoded = json.dumps(status, ensure_ascii=False)
+        self.assertFalse(status["available"])
+        self.assertTrue(status["onboarding"]["localSearchAvailable"])
+        self.assertIn("configure-provider.bat", encoded)
+        self.assertIn("브라우저나 채팅", encoded)
+        self.assertNotIn("API_KEY=", encoded)
+
+    def test_ask_without_ai_raises_setup_required(self):
+        with patch.dict(
+            os.environ,
+            {"LLMWIKI_AI_ENABLED": "0"},
+            clear=True,
+        ):
+            with self.assertRaises(bridge.AISetupRequired):
+                bridge.ask_provider("질문", [], Path.cwd())
+
+    def test_selected_provider_without_key_raises_setup_required(self):
+        with patch.dict(
+            os.environ,
+            {
+                "LLMWIKI_AI_ENABLED": "1",
+                "LLMWIKI_PROVIDER": "openai",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(bridge.AISetupRequired):
+                bridge.ask_provider("질문", [], Path.cwd())
+
     def test_prompt_caps_context_and_marks_documents_untrusted(self):
         pages = [
             {"id": f"{index}.md", "title": f"Page {index}", "body": "x" * 10_000}
